@@ -5,12 +5,23 @@ import json
 os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+import tensorflow as tf
+
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+  try:
+    for gpu in gpus:
+      tf.config.experimental.set_memory_growth(gpu, True)
+  except RuntimeError as e:
+    print(e)
+
+
 import numpy as np
 import pandas as pd
 import time
 import math
 import h5py
-import tensorflow as tf
+
 
 from tensorflow import keras
 from tensorflow.keras.callbacks import TensorBoard, LearningRateScheduler, EarlyStopping, ModelCheckpoint
@@ -43,6 +54,7 @@ from datetime import datetime
 from sklearn.metrics import accuracy_score
 
 
+
 class MergerNet(object):
 
     def __init__(self, data_path, callbacks=None):
@@ -53,7 +65,7 @@ class MergerNet(object):
         self.load_model()
         self.load_data()
         #self.load_generators()
-        self.init_weights()
+        #self.init_weights()
 
     def init_weights(self):
 
@@ -93,15 +105,15 @@ class MergerNet(object):
     def load_model(self):
         self.model = mdls.base_model()
         initial_learning_rate = 0.1
-        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-                                                                    initial_learning_rate,
-                                                                    decay_steps=1000,
-                                                                    decay_rate=0.99,
-                                                                    staircase=True)
+        # lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        #                                                             initial_learning_rate,
+        #                                                             decay_steps=1000,
+        #                                                             decay_rate=0.99,
+        #                                                             staircase=True)
 
 
-        self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=lr_schedule)
-        self.loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=initial_learning_rate)
+        self.loss = tf.keras.losses.MeanSquaredError()
         self.model.compile(loss=self.loss, optimizer=self.optimizer)
         self.model.summary()
     
@@ -120,14 +132,19 @@ class MergerNet(object):
         def _parse_image_function(example_proto):
             
             image_feature_description = {
-                'label': tf.io.FixedLenFeature([], tf.int64),
+                #'label': tf.io.FixedLenFeature([], tf.int64),
                 'image_raw': tf.io.FixedLenFeature([], tf.string),
+                'number_of_mm_10' : tf.io.FixedLenFeature([], tf.int64),
+                'number_of_mm_25' : tf.io.FixedLenFeature([], tf.int64),
+                'fracs' : tf.io.FixedLenFeature([], tf.float32),
+                'last_snapshot' : tf.io.FixedLenFeature([], tf.int64)
             }
 
             example = tf.io.parse_single_example(example_proto, image_feature_description)
             image = tf.io.decode_raw(example['image_raw'], out_type=np.float64)
+            #image = tf.cast(image, tf.float32)
             image = tf.reshape(image, (128, 128, 4))
-            label = tf.one_hot(example['label'], 2, dtype=tf.int32)
+            label = example['fracs']#tf.cast(example['fracs'], tf.float32)#tf.one_hot(example['label'], 2, dtype=tf.int32)
             return image, label
         
         self.training_dataset = tf.data.TFRecordDataset(f'{self.data_path}/train.tfrecords')
@@ -136,7 +153,7 @@ class MergerNet(object):
         ignore_order.experimental_deterministic = False
         self.training_dataset = self.training_dataset.with_options(ignore_order) 
         self.test_dataset = self.test_dataset.with_options(ignore_order)
-        self.training_dataset = self.training_dataset.map(_parse_image_function, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(32, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE).shuffle(5000, reshuffle_each_iteration=True)
+        self.training_dataset = self.training_dataset.map(_parse_image_function, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(32, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)#.shuffle(5000, reshuffle_each_iteration=True)
         self.test_dataset = self.test_dataset.map(_parse_image_function, num_parallel_calls=tf.data.experimental.AUTOTUNE).batch(32, drop_remainder=True)
 
 
@@ -152,8 +169,8 @@ if __name__ == "__main__":
 
     tensorboard_callback = keras.callbacks.TensorBoard(log_dir=logdir)
 
-    mergernet = MergerNet('data/BALANCED_ABOVE25')
-
+    mergernet = MergerNet('data/REGRESSION')
+    
     train_logger = MergeNetLogger(mergernet.training_dataset,
                                  mergernet.loss,
                                  writer=file_writer_train)
@@ -166,4 +183,5 @@ if __name__ == "__main__":
 
     mergernet.set_callbacks([train_logger, test_logger])
     train_logger.set_model(mergernet.model)
+    
     mergernet.train(10000)

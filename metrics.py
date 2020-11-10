@@ -21,7 +21,7 @@ class MergeNetLogger(Callback):
                  dataset,
                  loss,
                  batch_size=32,
-                 n_classes=2, 
+                 n_classes=1, 
                  writer=None,
                  log_images=False):
         
@@ -32,10 +32,11 @@ class MergeNetLogger(Callback):
         # SLOW but for when size are not known 
         self.batches = sum(1 for _ in self.dataset)
         print(self.batches)
-        if log_images:
-            self.batches = 227
-        else:
-            self.batches = 911
+        
+        #if log_images:
+        #   self.batches = 369
+        #else:
+        #    self.batches = 1478
 
         self.loss = loss
         self.batch_size = batch_size
@@ -43,7 +44,8 @@ class MergeNetLogger(Callback):
         self.writer = writer
         self.log_images = log_images
         self.upsilon = [0]
-    
+        self.losses = [10]
+
     def set_model(self, model):
         self.model = model         
        
@@ -61,7 +63,7 @@ class MergeNetLogger(Callback):
                 self.reference_y = yVal
         
             val_pred[batch * self.batch_size : (batch+1) * self.batch_size] = self.model.predict(xVal)
-            val_true[batch * self.batch_size : (batch+1) * self.batch_size] = yVal.numpy()
+            val_true[batch * self.batch_size : (batch+1) * self.batch_size, 0] = yVal.numpy()
         
 
         val_pred_binary = val_pred.round()
@@ -70,14 +72,20 @@ class MergeNetLogger(Callback):
         true = np.argmax(val_true, axis=1)
         
         with self.writer.as_default():
-            tf.summary.scalar(name='loss', data=self.loss(val_true, val_pred), step=epoch)
+            loss = self.loss(val_true, val_pred)
+            tf.summary.scalar(name='loss', data=loss, step=epoch)
             tf.summary.scalar(name='lr', data=self.model.optimizer._decayed_lr(tf.float32), step=epoch)
-            tf.summary.scalar(name='accuracy', data=accuracy_score(true, pred), step=epoch)
+
+            if self.log_images:
+                if loss < np.min(self.losses):
+                    self.losses.append(loss)
+                    self.model.save(f'model_{loss}.h5')
+            #tf.summary.scalar(name='accuracy', data=accuracy_score(true, pred), step=epoch)
 
             # if epoch % 10 == 0:
-            if self.log_images:
-                self.log_confusion_matrix(true, pred, epoch)
-                self.benchmark_reference(epoch)
+            #if self.log_images:
+            #    self.log_confusion_matrix(true, pred, epoch)
+            #    self.benchmark_reference(epoch)
             #         for i, layer in enumerate(self.model.layers):
             #             if 'dense' in layer.name:
             #                 tf.summary.histogram(f'{layer.name}_weights', layer.get_weights()[0], step=epoch)

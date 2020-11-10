@@ -36,7 +36,7 @@ def base_model():
     x = Dense(512, 'relu')(x)
     x = Dropout(0.5)(x)
 
-    output = Dense(2, activation='sigmoid', name='class_dense')(x)
+    output = Dense(1, activation='linear', name='class_dense')(x)
 
     model = Model(inputs=input_img, outputs=output)
     
